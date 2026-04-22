@@ -1,6 +1,6 @@
 {
     "name": "@centuari-labs/on-chain-effects",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "C10 verify-then-apply idempotency primitive shared between eager-path writers (backend-v2, settlement-engine, sweeper-bot) and the indexer-v3 tail.",
     "type": "module",
     "main": "./dist/index.js",
@@ -11,7 +11,10 @@
             "default": "./dist/index.js"
         }
     },
-    "files": ["dist", "README.md"],
+    "files": [
+        "dist",
+        "README.md"
+    ],
     "repository": {
         "type": "git",
         "url": "git+https://github.com/centuari-labs/on-chain-effects.git"
@@ -25,7 +28,7 @@
         "typecheck": "tsc --noEmit",
         "lint": "biome check --write src",
         "format": "biome format --write src",
-        "test": "jest --passWithNoTests",
+        "test": "NODE_OPTIONS=--experimental-vm-modules jest",
         "prepublishOnly": "pnpm run build"
     },
     "peerDependencies": {
@@ -34,6 +37,7 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.3.4",
+        "@jest/globals": "^30.3.0",
         "@types/jest": "^29.5.14",
         "@types/node": "^22.10.1",
         "@types/pg": "^8.11.10",
