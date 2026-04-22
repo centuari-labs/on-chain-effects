@@ -1,0 +1,49 @@
+{
+    "name": "@centuari/on-chain-effects",
+    "version": "0.1.0",
+    "description": "C10 verify-then-apply idempotency primitive shared between eager-path writers (backend-v2, settlement-engine, sweeper-bot) and the indexer-v3 tail.",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "files": ["dist", "README.md"],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/centuari/on-chain-effects.git"
+    },
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com",
+        "access": "restricted"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc --noEmit",
+        "lint": "biome check --write src",
+        "format": "biome format --write src",
+        "test": "jest",
+        "prepublishOnly": "pnpm run build"
+    },
+    "peerDependencies": {
+        "pg": "^8.13.0",
+        "viem": "^2.21.0"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "2.3.4",
+        "@types/jest": "^29.5.14",
+        "@types/node": "^22.10.1",
+        "@types/pg": "^8.11.10",
+        "jest": "^29.7.0",
+        "pg": "^8.13.1",
+        "ts-jest": "^29.2.5",
+        "typescript": "^5.7.2",
+        "viem": "^2.21.48"
+    },
+    "engines": {
+        "node": ">=22"
+    }
+}
