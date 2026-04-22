@@ -19,7 +19,7 @@ jobs:
               with:
                   node-version: 22
                   registry-url: "https://npm.pkg.github.com"
-                  scope: "@centuari"
+                  scope: "@centuari-labs"
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
             - run: pnpm run build

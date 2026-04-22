@@ -1,4 +1,4 @@
-# @centuari/on-chain-effects
+# @centuari-labs/on-chain-effects
 
 The **C10 verify-then-apply** idempotency primitive shared between eager-path writers (`backend-v2`, `settlement-engine`, `sweeper-bot`) and the `indexer-v3` tail. Both paths apply the same mutation keyed by `(tx_hash, log_index)`; whichever commits second no-ops.
 
@@ -9,7 +9,7 @@ This package lives in the private GitHub Packages registry. Consumers need:
 1. A `.npmrc` in the repo root (or home dir):
 
     ```
-    @centuari:registry=https://npm.pkg.github.com
+    @centuari-labs:registry=https://npm.pkg.github.com
     //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
     ```
 
@@ -18,7 +18,7 @@ This package lives in the private GitHub Packages registry. Consumers need:
 Then:
 
 ```bash
-pnpm add @centuari/on-chain-effects
+pnpm add @centuari-labs/on-chain-effects
 ```
 
 `viem` and `pg` are peer dependencies — the consumer must have them installed.
@@ -29,7 +29,7 @@ pnpm add @centuari/on-chain-effects
 import {
     applyOnChainEffect,
     type IdempotencyStamp,
-} from "@centuari/on-chain-effects";
+} from "@centuari-labs/on-chain-effects";
 
 const result = await applyOnChainEffect({
     client,
@@ -105,9 +105,9 @@ When actively changing the helper and a consumer together:
 pnpm build && pnpm link --global
 
 # in the consumer (backend-v2, indexer-v3, etc.)
-pnpm link --global @centuari/on-chain-effects
+pnpm link --global @centuari-labs/on-chain-effects
 ```
 
-Unlink with `pnpm unlink --global @centuari/on-chain-effects`.
+Unlink with `pnpm unlink --global @centuari-labs/on-chain-effects`.
 
 For anything beyond trivial changes, cut a pre-release (`pnpm version prerelease --preid=alpha`) and install the real artifact — `pnpm link` hides packaging bugs (excluded files, broken `exports`).
