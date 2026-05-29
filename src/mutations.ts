@@ -23,6 +23,16 @@ import type { IdempotencyStamp } from "./apply-on-chain-effect.js";
  * and no-ops when it later observes the same event. Each function returns the
  * affected row count so decrement callers can preserve their "missing row"
  * warnings; upserts always affect a row.
+ *
+ * One exception — `applyMarketCreatedMutation` — takes a NULLABLE stamp. The
+ * backend registers markets on a daily cron BEFORE any on-chain
+ * `Centuari.MarketCreated` event exists (the contract only emits that on a
+ * market's first settlement), so the eager path has no tx/log/block to stamp.
+ * Those rows carry NULL `applied_by_*` until the indexer tail observes the
+ * first settlement; its `ON CONFLICT (market_id) DO NOTHING` then makes the
+ * tail-write a no-op and the stamps simply stay NULL. `market` rows are
+ * immutable once created, so the unstamped row is safe and needs no
+ * `isAlreadyStamped` guard.
  */
 
 /** Convert a `0x`-prefixed hex string to a Buffer for a BYTEA column. */
@@ -107,6 +117,12 @@ export interface BorrowPositionCreatedArgs {
     principal: bigint;
     debt: bigint;
     rate: bigint;
+}
+
+export interface MarketCreatedArgs {
+    marketId: Hex;
+    loanToken: Hex;
+    maturity: bigint;
 }
 
 /**
@@ -366,6 +382,44 @@ export async function applyBorrowPositionCreatedMutation(
             stamp.logIndex,
             hexToBytea(stamp.blockHash),
             stamp.blockNumber.toString(),
+        ],
+    );
+    return res.rowCount ?? 0;
+}
+
+/**
+ * `Centuari.MarketCreated` (indexer tail) AND backend's pre-event eager market
+ * registration both upsert the market identity row. Insert-if-absent via
+ * `ON CONFLICT (market_id) DO NOTHING` — markets are immutable once created,
+ * so NO `isAlreadyStamped` guard is needed (unlike accumulating positions).
+ *
+ * `stamp` is nullable: the backend cron creates the row before any
+ * `MarketCreated` event exists, so `applied_by_*` stay NULL until the indexer
+ * observes the first settlement, at which point `DO NOTHING` makes the
+ * tail-write a safe no-op and the stamps remain NULL. The indexer passes a
+ * real stamp for rows it creates first. A return value of 0 just means the row
+ * already existed (e.g. the eager path won the race) — never a warning here.
+ */
+export async function applyMarketCreatedMutation(
+    tx: PoolClient,
+    decoded: MarketCreatedArgs,
+    stamp: IdempotencyStamp | null,
+): Promise<number> {
+    const res = await tx.query(
+        `INSERT INTO market
+            (market_id, loan_token, maturity, created_at,
+             applied_by_tx_hash, applied_by_log_index,
+             applied_by_block_hash, applied_by_block_number)
+         VALUES ($1, $2, $3, now(), $4, $5, $6, $7)
+         ON CONFLICT (market_id) DO NOTHING`,
+        [
+            hexToBytea(decoded.marketId),
+            hexToBytea(decoded.loanToken),
+            decoded.maturity.toString(),
+            stamp ? hexToBytea(stamp.txHash) : null,
+            stamp ? stamp.logIndex : null,
+            stamp ? hexToBytea(stamp.blockHash) : null,
+            stamp ? stamp.blockNumber.toString() : null,
         ],
     );
     return res.rowCount ?? 0;

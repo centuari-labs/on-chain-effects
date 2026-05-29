@@ -1,6 +1,6 @@
 {
     "name": "@centuari-labs/on-chain-effects",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "C10 verify-then-apply idempotency primitive shared between eager-path writers (backend-v2, settlement-engine, sweeper-bot) and the indexer-v3 tail.",
     "type": "module",
     "main": "./dist/index.js",

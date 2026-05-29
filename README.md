@@ -84,6 +84,25 @@ Anything else throws.
 2. `mutation` runs inside an open `pg` transaction — do not `BEGIN` or `COMMIT` yourself.
 3. `expectedArgsPredicate` must be pure and synchronous.
 
+## Per-event mutations (C7)
+
+As of `v0.3.0` the package also owns the per-event upsert SQL itself — not just the wrapper. These tx-agnostic functions are the single source of truth for every stamped mutation on the shared on-chain-state schema, called by **both** the eager-path writers (`backend-v2` `apply-*.ts`, `settlement-engine` `apply-settlement.ts`) **and** the `indexer-v3` tail. The emitted SQL is identical **by construction**, not kept in sync by code-review discipline. Each takes a caller-owned `PoolClient`, runs one parameterised statement, stamps the four `applied_by_*` columns, and returns the affected row count.
+
+| Function | Event | Table |
+|---|---|---|
+| `applyCreditedMutation` | `BalanceLedger.Credited` | `user_balance.available +=` |
+| `applyDebitedMutation` | `BalanceLedger.Debited` | `user_balance.available -=` |
+| `applyCollateralFlagSetMutation` | `BalanceLedger.CollateralFlagSet` | `user_balance.used_as_collateral`, `flagged_at` |
+| `applyRepaidMutation` | `Centuari.Repaid` | `borrow_position.debt -=` |
+| `applyBorrowPositionCreatedMutation` | `Centuari.BorrowPositionCreated` | `borrow_position` upsert |
+| `applyLendPositionCreatedMutation` | `Centuari.LendPositionCreated` | `lend_position` upsert |
+| `applyLendPositionWithdrawnMutation` | `Centuari.LendPositionWithdrawn` | `lend_position` decrement |
+| `applyMarketCreatedMutation` (`v0.4.0`) | `Centuari.MarketCreated` | `market` insert-if-absent |
+
+Plus `isAlreadyStamped(tx, table, pkCondition, pkValues, stamp)` for the idempotency check and `hexToBytea(hex)` for `BYTEA` binding.
+
+**`applyMarketCreatedMutation` is the one deliberate asymmetry.** It takes a **nullable** stamp (`IdempotencyStamp | null`) because the backend registers markets on a daily cron *before* any on-chain `MarketCreated` event exists (the contract only emits that on a market's first settlement). The eager path passes `null` → the row carries NULL `applied_by_*` until the indexer tail observes the first settlement, at which point its `ON CONFLICT (market_id) DO NOTHING` makes the tail-write a no-op and the stamps stay NULL. `market` rows are immutable once created, so the unstamped row is safe and needs no `isAlreadyStamped` guard. A return value of `0` here means the row already existed (the other writer won the race) — never a warning.
+
 ## Publishing
 
 Publishes run automatically via `.github/workflows/publish.yml` on any tag matching `v*`.

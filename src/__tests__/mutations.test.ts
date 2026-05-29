@@ -9,6 +9,7 @@ import {
     applyDebitedMutation,
     applyLendPositionCreatedMutation,
     applyLendPositionWithdrawnMutation,
+    applyMarketCreatedMutation,
     applyRepaidMutation,
     hexToBytea,
     isAlreadyStamped,
@@ -263,6 +264,79 @@ describe("position mutations", () => {
             hexToBytea(BLOCK),
             "100",
         ]);
+    });
+});
+
+describe("market mutation", () => {
+    const MATURITY = 1893456000n;
+
+    test("applyMarketCreatedMutation inserts with a stamp", async () => {
+        const { tx, calls } = makeTxMock();
+        const rows = await applyMarketCreatedMutation(
+            tx,
+            { marketId: MARKET, loanToken: ASSET, maturity: MATURITY },
+            STAMP,
+        );
+
+        expect(rows).toBe(1);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]?.sql).toMatchSnapshot();
+        expect(calls[0]?.sql).toContain("ON CONFLICT (market_id) DO NOTHING");
+        expect(calls[0]?.params).toEqual([
+            hexToBytea(MARKET),
+            hexToBytea(ASSET),
+            "1893456000",
+            hexToBytea(TX),
+            3,
+            hexToBytea(BLOCK),
+            "100",
+        ]);
+    });
+
+    test("eager pre-event create passes a null stamp (applied_by_* NULL)", async () => {
+        const { tx, calls } = makeTxMock();
+        await applyMarketCreatedMutation(
+            tx,
+            { marketId: MARKET, loanToken: ASSET, maturity: MATURITY },
+            null,
+        );
+
+        // Same upsert SQL as the stamped path — only the stamp params differ.
+        expect(calls[0]?.params).toEqual([
+            hexToBytea(MARKET),
+            hexToBytea(ASSET),
+            "1893456000",
+            null,
+            null,
+            null,
+            null,
+        ]);
+    });
+
+    test("stamped and eager paths emit byte-identical SQL", async () => {
+        const stamped = makeTxMock();
+        const eager = makeTxMock();
+        await applyMarketCreatedMutation(
+            stamped.tx,
+            { marketId: MARKET, loanToken: ASSET, maturity: MATURITY },
+            STAMP,
+        );
+        await applyMarketCreatedMutation(
+            eager.tx,
+            { marketId: MARKET, loanToken: ASSET, maturity: MATURITY },
+            null,
+        );
+        expect(stamped.calls[0]?.sql).toBe(eager.calls[0]?.sql);
+    });
+
+    test("returns 0 when the row already exists (ON CONFLICT DO NOTHING)", async () => {
+        const { tx } = makeTxMock(0);
+        const rows = await applyMarketCreatedMutation(
+            tx,
+            { marketId: MARKET, loanToken: ASSET, maturity: MATURITY },
+            STAMP,
+        );
+        expect(rows).toBe(0);
     });
 });
 
