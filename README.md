@@ -2,6 +2,36 @@
 
 The **C10 verify-then-apply** idempotency primitive shared between eager-path writers (`backend-v2`, `settlement-engine`, `sweeper-bot`) and the `indexer-v3` tail. Both paths apply the same mutation keyed by `(tx_hash, log_index)`; whichever commits second no-ops.
 
+This is the shared library at the heart of the [Centuari](https://github.com/centuari-labs/centuari) system's two-writer consistency model.
+
+## The problem it solves
+
+Centuari updates its database from two directions. The **eager path** (backend,
+settlement engine, sweeper bot) writes a row the instant it broadcasts a
+transaction — fast UX, but the transaction might revert or get reorged. The
+**tail path** (`indexer-v3`) writes the same row when it observes the mined
+event — authoritative, but seconds behind. Without coordination they would race,
+double-apply, or drift apart.
+
+This package is the single source of truth that makes both paths safe and
+identical *by construction*:
+
+```mermaid
+flowchart TD
+    EAGER[Eager writer<br/>backend / settlement / sweeper] -->|applyOnChainEffect| LIB[on-chain-effects]
+    TAIL[indexer-v3 tail] -->|applyOnChainEffect| LIB
+    LIB --> VERIFY[Verify receipt + event + args]
+    VERIFY --> CHECK[Already stamped?]
+    CHECK -->|yes| NOOP[No-op]
+    CHECK -->|no| MUT[Run mutation<br/>stamp 4 applied_by_* cols]
+    MUT --> PG[(Shared PostgreSQL)]
+    NOOP --> PG
+```
+
+Whichever path commits first stamps `(tx_hash, log_index)` onto the row; the
+second path sees the stamp and no-ops. Because the package owns the per-event
+upsert SQL too (not just the wrapper), the two paths can't diverge.
+
 ## Install
 
 This package lives in the private GitHub Packages registry. Consumers need:
