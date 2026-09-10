@@ -1,16 +1,26 @@
 # @centuari-labs/on-chain-effects
 
-The **C10 verify-then-apply** idempotency primitive shared between eager-path writers (`backend-v2`, `settlement-engine`, `sweeper-bot`) and the `indexer-v3` tail. Both paths apply the same mutation keyed by `(tx_hash, log_index)`; whichever commits second no-ops.
+The **C10 verify-then-apply** idempotency primitive shared between eager-path
+writers (`backend-v2` and `settlement-engine`) and the `indexer-v3` tail. Both
+paths apply the same mutation keyed by `(tx_hash, log_index)`; whichever commits
+second no-ops.
 
 This is the shared library at the heart of the [Centuari](https://github.com/centuari-labs/centuari) system's two-writer consistency model.
 
+The settlement engine also has a separate stuck-`PENDING` recovery worker that
+checks whether a match landed on-chain before releasing locks or quarantining a
+ghost-settled record. That recovery worker is not a cross-chain sweeper, and
+this package does not provide one. Spoke-chain processors and cross-chain user
+flows are deferred while Centuari's active launch remains hub-only on Arbitrum
+Sepolia.
+
 ## The problem it solves
 
-Centuari updates its database from two directions. The **eager path** (backend,
-settlement engine, sweeper bot) writes a row the instant it broadcasts a
-transaction — fast UX, but the transaction might revert or get reorged. The
-**tail path** (`indexer-v3`) writes the same row when it observes the mined
-event — authoritative, but seconds behind. Without coordination they would race,
+Centuari updates its database from two directions. The **eager path** (backend
+and settlement engine) writes a row the instant it broadcasts a transaction —
+fast UX, but the transaction might revert or get reorged. The **tail path**
+(`indexer-v3`) writes the same row when it observes the mined event —
+authoritative, but seconds behind. Without coordination they would race,
 double-apply, or drift apart.
 
 This package is the single source of truth that makes both paths safe and
@@ -18,8 +28,8 @@ identical *by construction*:
 
 ```mermaid
 flowchart TD
-    EAGER[Eager writer<br/>backend / settlement / sweeper] -->|applyOnChainEffect| LIB[on-chain-effects]
-    TAIL[indexer-v3 tail] -->|applyOnChainEffect| LIB
+    EAGER[Eager writer<br/>backend / settlement] -->|applyOnChainEffect| LIB[on-chain-effects]
+    TAIL[indexer-v3 tail] -->|shared mutations + isAlreadyStamped| LIB
     LIB --> VERIFY[Verify receipt + event + args]
     VERIFY --> CHECK[Already stamped?]
     CHECK -->|yes| NOOP[No-op]
@@ -34,21 +44,28 @@ upsert SQL too (not just the wrapper), the two paths can't diverge.
 
 ## Install
 
-This package lives in the private GitHub Packages registry. Consumers need:
+This package lives in the private GitHub Packages registry. Consumers need a
+read-only package token, but must not commit a literal token or a credential-
+bearing `.npmrc` to a repository. Prefer a temporary user configuration outside
+the checkout, with the token supplied through a secret manager or an environment
+mechanism that does not write it into shell history.
 
-1. A `.npmrc` in the repo root (or home dir):
+1. A temporary npm user configuration (outside the repo), for example:
 
     ```
     @centuari-labs:registry=https://npm.pkg.github.com
     //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
     ```
 
-2. `NODE_AUTH_TOKEN` env var set to a GitHub PAT with `read:packages` scope (local dev) or to `${{ secrets.GITHUB_TOKEN }}` in GitHub Actions.
+2. `NODE_AUTH_TOKEN` set to a GitHub token with `read:packages` scope for local
+   development, or to `${{ secrets.GITHUB_TOKEN }}` in GitHub Actions. Keep
+   `.env`, `.env.local`, and `.npmrc` files untracked; do not add a repository-
+   local file containing a literal token.
 
 Then:
 
 ```bash
-pnpm add @centuari-labs/on-chain-effects
+NPM_CONFIG_USERCONFIG=/path/to/temporary/npmrc pnpm add @centuari-labs/on-chain-effects
 ```
 
 `viem` and `pg` are peer dependencies — the consumer must have them installed.
@@ -58,7 +75,8 @@ pnpm add @centuari-labs/on-chain-effects
 ```ts
 import {
     applyOnChainEffect,
-    type IdempotencyStamp,
+    hexToBytea,
+    isAlreadyStamped,
 } from "@centuari-labs/on-chain-effects";
 
 const result = await applyOnChainEffect({
@@ -68,13 +86,14 @@ const result = await applyOnChainEffect({
     expectedEventTopic: CREDITED_TOPIC,
     abi: BalanceLedgerAbi,
     expectedArgsPredicate: (args) => args.user === expectedUser,
-    alreadyAppliedCheck: async (tx, stamp) => {
-        const row = await tx.query(
-            "SELECT applied_by_tx_hash FROM user_balance WHERE user_address = $1 AND asset = $2",
+    alreadyAppliedCheck: (tx, stamp) =>
+        isAlreadyStamped(
+            tx,
+            "user_balance",
+            "user_address = $1 AND asset = $2",
             [userAddressBytea, assetBytea],
-        );
-        return row.rows[0]?.applied_by_tx_hash?.equals(stamp.txHash);
-    },
+            stamp,
+        ),
     mutation: async (tx, args, stamp) => {
         await tx.query(
             `UPDATE user_balance
@@ -85,11 +104,11 @@ const result = await applyOnChainEffect({
                    applied_by_block_number = $5
              WHERE user_address = $6 AND asset = $7`,
             [
-                args.amount,
-                stamp.txHash,
+                args.amount.toString(),
+                hexToBytea(stamp.txHash),
                 stamp.logIndex,
-                stamp.blockHash,
-                stamp.blockNumber,
+                hexToBytea(stamp.blockHash),
+                stamp.blockNumber.toString(),
                 userAddressBytea,
                 assetBytea,
             ],
